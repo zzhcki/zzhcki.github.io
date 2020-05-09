@@ -6,14 +6,22 @@
   <meta name="renderer" content="webkit">
   <meta http-equiv="X-UA-Compatible" content="IE=edge" >
   <link rel="dns-prefetch" href="https://zzhcki.github.io">
-  <title>Archives: 2020 | 张瑞权</title>
+  <title>一次 Spring Cloud Openfeign 扩展历程 | 张瑞权</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <meta property="og:type" content="website">
-<meta property="og:title" content="张瑞权">
-<meta property="og:url" content="https://zzhcki.github.io/archives/2020/index.html">
+  <meta name="description" content="本文会阐述一次在公司内对于openfeign进行扩展的历程（不会具体到需求），本文中会包含源码分析和一些个人的思考。 目录 背景 Spring Cloud如何结合Feign 注入相应bean的流程 涉及的核心类   源码分析 如何扩展 自己的思考 使用Spring Aop 使用Jdk Proxy    1. 背景当前需要在不影响之前所写的Feign声明的情况下，需要在Feign调用时进行一定的扩展">
+<meta property="og:type" content="article">
+<meta property="og:title" content="一次 Spring Cloud Openfeign 扩展历程">
+<meta property="og:url" content="https://zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/index.html">
 <meta property="og:site_name" content="张瑞权">
+<meta property="og:description" content="本文会阐述一次在公司内对于openfeign进行扩展的历程（不会具体到需求），本文中会包含源码分析和一些个人的思考。 目录 背景 Spring Cloud如何结合Feign 注入相应bean的流程 涉及的核心类   源码分析 如何扩展 自己的思考 使用Spring Aop 使用Jdk Proxy    1. 背景当前需要在不影响之前所写的Feign声明的情况下，需要在Feign调用时进行一定的扩展">
+<meta property="og:image" content="https://zzhcki.github.io/zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/main_step.png">
+<meta property="og:image" content="https://zzhcki.github.io/zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/proxy_step.png">
+<meta property="article:published_time" content="2020-05-09T14:58:17.000Z">
+<meta property="article:modified_time" content="2020-05-09T15:18:16.928Z">
 <meta property="article:author" content="张瑞权">
+<meta property="article:tag" content="Spring Cloud">
 <meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://zzhcki.github.io/zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/main_step.png">
   
     <link rel="alternative" href="/atom.xml" title="张瑞权" type="application/atom+xml">
   
@@ -157,36 +165,214 @@
             <canvas data-colors="#eaeaea" data-sectionHeight="100" data-contentId="js-content" id="myCanvas1" class="anm-canvas"></canvas>
           </div>
           <div id="js-content" class="content-ll">
-            
-  
-  
+            <article id="post-Spring-Cloud-Openfeign-extension" class="article article-type-post " itemscope itemprop="blogPost">
+  <div class="article-inner">
     
-    
-      
-      
-      <section class="archives-wrap">
-        <div class="archive-year-wrap">
-          <a href="/zzhcki.github.io/archives/2020" class="archive-year">2020</a>
-        </div>
-        <div class="archives">
-    
-    <article class="archive-article archive-type-post">
-  <div class="archive-article-inner">
-    <header class="archive-article-header">
-      	<div class="article-meta">
-	      	<a href="/zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/" class="archive-article-date">
-  	<time datetime="2020-05-09T14:58:17.000Z" itemprop="datePublished"><i class="icon-calendar icon"></i>2020-05-09</time>
-</a>
-        </div>
-    	 
+      <header class="article-header">
+        
   
-    <h1 itemprop="name">
-      <a class="archive-article-title" href="/zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/">一次 Spring Cloud Openfeign 扩展历程</a>
+    <h1 class="article-title" itemprop="name">
+      一次 Spring Cloud Openfeign 扩展历程
     </h1>
   
 
-        <div class="article-info info-on-right">
-          
+        
+        <a href="/zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/" class="archive-article-date">
+  	<time datetime="2020-05-09T14:58:17.000Z" itemprop="datePublished"><i class="icon-calendar icon"></i>2020-05-09</time>
+</a>
+        
+      </header>
+    
+    <div class="article-entry" itemprop="articleBody">
+      
+        <p>本文会阐述一次在公司内对于openfeign进行扩展的历程（不会具体到需求），本文中会包含源码分析和一些个人的思考。</p>
+<h2 id="目录"><a href="#目录" class="headerlink" title="目录"></a>目录</h2><ol>
+<li>背景</li>
+<li>Spring Cloud如何结合Feign<ol>
+<li>注入相应bean的流程</li>
+<li>涉及的核心类</li>
+</ol>
+</li>
+<li>源码分析</li>
+<li>如何扩展<ol>
+<li>自己的思考</li>
+<li>使用Spring Aop</li>
+<li>使用Jdk Proxy</li>
+</ol>
+</li>
+</ol>
+<h2 id="1-背景"><a href="#1-背景" class="headerlink" title="1. 背景"></a>1. 背景</h2><p>当前需要在不影响之前所写的Feign声明的情况下，需要在Feign调用时进行一定的扩展（该增强需要尽量通用），使其具有一项功能（例如：替换之前写的Feign调用在不改变任何声明的情况下，只需修改对应支持包版本即可升级为新的调用方式等）。</p>
+<p>针对于上述所描述的需要，我大体总结有2种方式来进行扩展：</p>
+<ul>
+<li>寻找openfeign中的扩展点，加以扩展后可以实现对应功能</li>
+<li>动态代理</li>
+</ul>
+<p>以下将会对本次扩展中，将会对整个分析流程进行阐述，将会涉及：</p>
+<ul>
+<li>Spring Cloud Openfeign 的部分源码（涉及到扩展点的源码）分析</li>
+<li>对于同类需求的 Spring Cloud Openfeign 的一般性扩展方式的实现（不会涉及到具体的扩展需求）</li>
+</ul>
+<p>当前环境：</p>
+<ul>
+<li>Spring Cloud: Hoxton.SR4</li>
+<li>Spring Boot: 2.2.6.RELEASE</li>
+</ul>
+<h2 id="2-Spring-Cloud-如何结合-Feign"><a href="#2-Spring-Cloud-如何结合-Feign" class="headerlink" title="2. Spring Cloud 如何结合 Feign"></a>2. Spring Cloud 如何结合 Feign</h2><h3 id="2-1-注入相应bean流程"><a href="#2-1-注入相应bean流程" class="headerlink" title="2.1 注入相应bean流程"></a>2.1 注入相应bean流程</h3><p>该流程中仅会描述 Spring Cloud Feign 的bean创建的大体流程</p>
+<p><img src="/zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/main_step.png" alt="主流程"></p>
+<h3 id="2-2-核心类"><a href="#2-2-核心类" class="headerlink" title="2.2 核心类"></a>2.2 核心类</h3><h5 id="2-2-1-FeignClientsRegistrar"><a href="#2-2-1-FeignClientsRegistrar" class="headerlink" title="2.2.1 FeignClientsRegistrar"></a>2.2.1 FeignClientsRegistrar</h5><p>该类实现了<code>ImportBeanDefinitionRegistrar</code> ，该种类型的类在<code>ConfigurationClassPostProcessor</code>-&gt; <code>ConfigurationClassParser</code> -&gt; <code>ConfigurationClassBeanDefinitionReader</code> 阶段时会得到处理（其<code>registerBeanDefinitions(AnnotationMetadata, BeanDefinitionRegistry)</code>方法会得到调用）。</p>
+<ul>
+<li><p>注册默认的Configuration类的BeanDefinition（<code>@EnableFeignClients</code>中自行配置的属性，属性名称为：<code>defaultConfiguration</code>）</p>
+<blockquote>
+<p>需要注意这里注入的Configuration，和下方描述的注入FeignClient时，注入的Configuration会被包装为<code>FeignClientSpecification</code>，至于为什么这样做在3节的源码分析中会提到。</p>
+</blockquote>
+</li>
+<li><p>注册相应的FeignClient的BeanDefinition</p>
+<ul>
+<li>根据配置的<code>basePackages</code>扫描对应的标注了<code>@FeignClient</code>的类<ul>
+<li>使用<code>ClassPathScanningCandidateComponentProvider</code>（也就是我们常见的<code>ClassPathBeanDefinitionScanner</code>的父类）进行扫描</li>
+<li>其会被注册为一个<code>BeanDefinition</code>，其beanClass会被声明为<code>FeignClientFactoryBean</code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<h5 id="2-2-2-FeignClientFactoryBean"><a href="#2-2-2-FeignClientFactoryBean" class="headerlink" title="2.2.2 FeignClientFactoryBean"></a>2.2.2 FeignClientFactoryBean</h5><ul>
+<li>创建了实际需要注入的bean对象，其是一个代理对象</li>
+</ul>
+<h5 id="2-2-3-Targeter"><a href="#2-2-3-Targeter" class="headerlink" title="2.2.3 Targeter"></a>2.2.3 Targeter</h5><p>按照我的理解，其会根据Feign的配置等创建对应的bean，并对原生的 <code>Feign.Builder</code> 进行不同的支持（例如：<code>HystrixTargeter</code> 添加了对 <code>HystrixFeign.Builder</code> 的支持）</p>
+<ul>
+<li>在 <code>FeignClientFactoryBean</code> 创建需要实际注入的bean时最后调用的是<code>Targeter#target</code></li>
+</ul>
+<h5 id="2-2-4-FeignContext"><a href="#2-2-4-FeignContext" class="headerlink" title="2.2.4 FeignContext"></a>2.2.4 FeignContext</h5><p>用于存储Feign所需要的一些配置（包括需要的bean等）信息，并且其继承于<code>NamedContextFactory</code> 那么他可根据不同的name名称来获取不同的<code>AnnotationConfigApplicationContext</code>。</p>
+<ul>
+<li>每一个<code>@FeignClient</code>其都可以配置对应的<code>contextId</code>，其实每一个不同的<code>contextId</code>都会对应到FeignContext中的一个<code>AnnotationConfigApplicationContext</code>。这样就可以实现不同的FeignClient可以有有不同的配置。</li>
+<li>FeignContext在构造是会注入初始配置：FeignClientsConfiguration</li>
+<li>其Bean是在 <code>FeignAutoConfiguration</code>进行声明的</li>
+</ul>
+<h3 id="3-源码分析"><a href="#3-源码分析" class="headerlink" title="3. 源码分析"></a>3. 源码分析</h3><h5 id="3-1-FeignClientsRegistrar"><a href="#3-1-FeignClientsRegistrar" class="headerlink" title="3.1 FeignClientsRegistrar"></a>3.1 FeignClientsRegistrar</h5><p>其是 <code>ImportBeanDefinitionRegistrar</code> 的实现类，则先看其<code>registerBeanDefinition</code>方法。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">public void registerBeanDefinitions(AnnotationMetadata metadata,</span><br><span class="line">				BeanDefinitionRegistry registry) &#123;</span><br><span class="line">	&#x2F;&#x2F; 注册默认配置的Configuration类相应的BeanDefinition，下方不进行阐述。</span><br><span class="line">	&#x2F;&#x2F; 只需特别注意其中该方法中调用的registerClientConfiguration方法</span><br><span class="line">	registerDefaultConfiguration(metadata, registry);</span><br><span class="line">	&#x2F;&#x2F; 注册相应的标注了@FeignClient的类的BeanDefinition</span><br><span class="line">	&#x2F;&#x2F; 也就是注册FeignClientFactoryBean BeanDefinition的地方</span><br><span class="line">	registerFeignClients(metadata, registry);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h5 id="3-1-1-registerClientConfiguration方法"><a href="#3-1-1-registerClientConfiguration方法" class="headerlink" title="3.1.1 registerClientConfiguration方法"></a>3.1.1 registerClientConfiguration方法</h5><p>下方是需要特别注意的<code>registerClientConfiguration</code>方法，其会将我们配置的Configuration包装为<code>FeignClientSpecification</code>的BeanDefinition进行注册。其在上方提到的<code>registerDefaultConfiguration</code>和<code>registerFeignClients</code> 方法中都得到了调用。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">private void registerClientConfiguration(BeanDefinitionRegistry registry, Object name,</span><br><span class="line">			Object configuration) &#123;</span><br><span class="line">	BeanDefinitionBuilder builder &#x3D; BeanDefinitionBuilder</span><br><span class="line">			.genericBeanDefinition(FeignClientSpecification.class);</span><br><span class="line">	builder.addConstructorArgValue(name);</span><br><span class="line">	builder.addConstructorArgValue(configuration);</span><br><span class="line">	registry.registerBeanDefinition(</span><br><span class="line">			name + &quot;.&quot; + FeignClientSpecification.class.getSimpleName(),</span><br><span class="line">			builder.getBeanDefinition());</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>注意：该种类型（FeignClientSpecification）的Bean会在 FeignAutoConfiguration 中进行依赖注入，并设置为FeignContext的configurations成员变量。</p>
+</blockquote>
+<h5 id="3-1-2-registerFeignClients方法"><a href="#3-1-2-registerFeignClients方法" class="headerlink" title="3.1.2 registerFeignClients方法"></a>3.1.2 registerFeignClients方法</h5><p>其中使用<code>ClassPathScanningCandidateComponentProvider</code>扫描配置的basePackages下声明了 @FeignClient 的类，并注册为相应的BeanDefinition。</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br></pre></td><td class="code"><pre><span class="line">public void registerFeignClients(AnnotationMetadata metadata,</span><br><span class="line">			BeanDefinitionRegistry registry) &#123;</span><br><span class="line">	ClassPathScanningCandidateComponentProvider scanner &#x3D; getScanner();</span><br><span class="line">	scanner.setResourceLoader(this.resourceLoader);</span><br><span class="line"></span><br><span class="line">	Set&lt;String&gt; basePackages;</span><br><span class="line">	</span><br><span class="line">	Map&lt;String, Object&gt; attrs &#x3D; metadata</span><br><span class="line">			.getAnnotationAttributes(EnableFeignClients.class.getName());</span><br><span class="line">	&#x2F;&#x2F; 初始化scanner使用的注解类型过滤器</span><br><span class="line">	AnnotationTypeFilter annotationTypeFilter &#x3D; new AnnotationTypeFilter(</span><br><span class="line">			FeignClient.class);</span><br><span class="line">			</span><br><span class="line">	&#x2F;&#x2F; 中间部分省略		</span><br><span class="line">	...</span><br><span class="line">	</span><br><span class="line">	for (String basePackage : basePackages) &#123;</span><br><span class="line">		&#x2F;&#x2F; 根据basePackage获取到所有的标注了@FeignClient的FileSystemResource</span><br><span class="line">		&#x2F;&#x2F; 如果满足过滤器的条件就会注册为ScannedGenericBeanDefinition</span><br><span class="line">		&#x2F;&#x2F; 该BeanDefinition会有一个AnnotationMetadata可以让方便获取注解元信息</span><br><span class="line">		Set&lt;BeanDefinition&gt; candidateComponents &#x3D; scanner</span><br><span class="line">				.findCandidateComponents(basePackage);</span><br><span class="line">		for (BeanDefinition candidateComponent : candidateComponents) &#123;</span><br><span class="line">			if (candidateComponent instanceof AnnotatedBeanDefinition) &#123;</span><br><span class="line">				AnnotatedBeanDefinition beanDefinition &#x3D; (AnnotatedBeanDefinition) candidateComponent;</span><br><span class="line">				</span><br><span class="line">				&#x2F;&#x2F; 下方获取注解元信息，并获取@FeignClient的属性值</span><br><span class="line">				AnnotationMetadata annotationMetadata &#x3D; beanDefinition.getMetadata();</span><br><span class="line">				Assert.isTrue(annotationMetadata.isInterface(),</span><br><span class="line">						&quot;@FeignClient can only be specified on an interface&quot;);</span><br><span class="line"></span><br><span class="line">				Map&lt;String, Object&gt; attributes &#x3D; annotationMetadata</span><br><span class="line">						.getAnnotationAttributes(</span><br><span class="line">								FeignClient.class.getCanonicalName());</span><br><span class="line"></span><br><span class="line">				String name &#x3D; getClientName(attributes);</span><br><span class="line">				&#x2F;&#x2F; 该方法在上方有描述，该处只是注册当前@FeignClient自行声明的Configuration类</span><br><span class="line">				registerClientConfiguration(registry, name,</span><br><span class="line">							attributes.get(&quot;configuration&quot;));</span><br><span class="line">				&#x2F;&#x2F; 其中从注解属性中获取相应的配置并注册为FeignClientFactoryBean的BeanDefinition</span><br><span class="line">				registerFeignClient(registry, annotationMetadata, attributes);</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+
+
+<h5 id="3-2-Targeter"><a href="#3-2-Targeter" class="headerlink" title="3.2 Targeter"></a>3.2 Targeter</h5><p>首先看一下该接口的声明：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">interface Targeter &#123;</span><br><span class="line">	&lt;T&gt; T target(FeignClientFactoryBean factory, Feign.Builder feign,</span><br><span class="line">			FeignContext context, Target.HardCodedTarget&lt;T&gt; target);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>需要注意该接口的访问权限为默认权限，也就是只能包内访问，这为后续扩展带来了一定的困扰。因为我们无法从其他地方去实现该接口。（除非我们声明一个一模一样的package）</p>
+</blockquote>
+<p>官方有两种实现：</p>
+<ul>
+<li>DefaultTargeter：默认实现，直接使用Feign.Builder#target创建对应代理</li>
+<li>HystrixTargeter：对HystrixFeign的支持，支持了Hystrix熔断器，其中实际会用<code>HystrixInvocationHandler</code>进行执行。不过要使用这种方式需要手动开启，具体下方会讲到。</li>
+</ul>
+<h5 id="3-2-1-DefaultTargeter"><a href="#3-2-1-DefaultTargeter" class="headerlink" title="3.2.1 DefaultTargeter"></a>3.2.1 DefaultTargeter</h5><figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">class DefaultTargeter implements Targeter &#123;</span><br><span class="line">	@Override</span><br><span class="line">	public &lt;T&gt; T target(FeignClientFactoryBean factory, Feign.Builder feign,</span><br><span class="line">			FeignContext context, Target.HardCodedTarget&lt;T&gt; target) &#123;</span><br><span class="line">		return feign.target(target);</span><br><span class="line">	&#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>下面将会省略中间步骤，仅会列出实际调用的代码：</p>
+<p>feign.target最终会调用到ReflectiveFen#newInstance</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">@SuppressWarnings(&quot;unchecked&quot;)</span><br><span class="line">@Override</span><br><span class="line">public &lt;T&gt; T newInstance(Target&lt;T&gt; target) &#123;</span><br><span class="line">  ... </span><br><span class="line">  &#x2F;&#x2F; 下方实际创建了一个代理</span><br><span class="line">  &#x2F;&#x2F; 这里需要注意这个factory对应的是一个InvocationHandlerFactory的实现</span><br><span class="line">  &#x2F;&#x2F; 但是因为这个点也对扩展产生了阻碍（大概说一下就是HystrixFeign类是final的，导致我们很难去自行扩展并传入自己的InvocationHandlerFactory）</span><br><span class="line">  InvocationHandler handler &#x3D; factory.create(target, methodToHandler);</span><br><span class="line">  T proxy &#x3D; (T) Proxy.newProxyInstance(target.type().getClassLoader(),</span><br><span class="line">      new Class&lt;?&gt;[] &#123;target.type()&#125;, handler);</span><br><span class="line"></span><br><span class="line">  for (DefaultMethodHandler defaultMethodHandler : defaultMethodHandlers) &#123;</span><br><span class="line">    defaultMethodHandler.bindTo(proxy);</span><br><span class="line">  &#125;</span><br><span class="line">  return proxy;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>经由上述我们可以大致归纳整个创建流程 Targeter -&gt; Feign.Builder#target -&gt; InvocatiionHandlerFactory -&gt;  ReflectiveFeign -&gt; 生成相应方法调用代理</p>
+<h5 id="3-2-1-HystrixTargeter"><a href="#3-2-1-HystrixTargeter" class="headerlink" title="3.2.1 HystrixTargeter"></a>3.2.1 HystrixTargeter</h5><p>其大体步骤也跟DefaultFeign类似，下面还是中间步骤不再分析，仅说出一些重要的点。</p>
+<p>其中我们主要关注 <code>HystrixFeign.Builder</code> 其继承了 <code>Feign.Builder</code>  在HystrixTargeter中在满足条件的情况下最终是调用到了 <code>HystrixFeign.Builder#target</code> 我们主要注意其中重写的build方法，其实现如下：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">@Override</span><br><span class="line">public Feign build() &#123;</span><br><span class="line">  return build(null);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">Feign build(final FallbackFactory&lt;?&gt; nullableFallbackFactory) &#123;</span><br><span class="line">  &#x2F;&#x2F; 其自行覆盖了InvocationHandler工厂，也就是代理实际调用的handler发生了改变</span><br><span class="line">  super.invocationHandlerFactory(new InvocationHandlerFactory() &#123;</span><br><span class="line">    @Override</span><br><span class="line">    public InvocationHandler create(Target target,</span><br><span class="line">                                    Map&lt;Method, MethodHandler&gt; dispatch) &#123;</span><br><span class="line">      return new HystrixInvocationHandler(target, dispatch, setterFactory,</span><br><span class="line">          nullableFallbackFactory);</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;);</span><br><span class="line">  super.contract(new HystrixDelegatingContract(contract));</span><br><span class="line">  return super.build();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>tips: 如果要使用HystrixFeign 需引入hystrix的支持，并且需同时配置feign.hystrix.enabled=true（具体可见FeignClientsConfiguration.HystrixFeignConfiguration）</p>
+</blockquote>
+<h5 id="3-3-FeignClientFactoryBean"><a href="#3-3-FeignClientFactoryBean" class="headerlink" title="3.3 FeignClientFactoryBean"></a>3.3 FeignClientFactoryBean</h5><h5 id="3-3-1-getTarget方法"><a href="#3-3-1-getTarget方法" class="headerlink" title="3.3.1 getTarget方法"></a>3.3.1 getTarget方法</h5><p>该方法为getObject实际调用的方法，</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line">&lt;T&gt; T getTarget() &#123;</span><br><span class="line">   &#x2F;&#x2F; 从当前的上下文中获取FeignContext的bean，FeignContext注入类为：FeignAutoConfiguration</span><br><span class="line">   &#x2F;&#x2F; 其内部会@Autowired FeignClientSpecification（前面提到的配置类的包装）的MultiBeans（集合），并传入FeignContext的构造中</span><br><span class="line">   FeignContext context &#x3D; this.applicationContext.getBean(FeignContext.class);</span><br><span class="line">   &#x2F;&#x2F; 该方法很重要，具体见下一个方法块的描述</span><br><span class="line">   Feign.Builder builder &#x3D; feign(context);</span><br><span class="line"></span><br><span class="line">   if (!StringUtils.hasText(this.url)) &#123;</span><br><span class="line">      if (!this.name.startsWith(&quot;http&quot;)) &#123;</span><br><span class="line">         this.url &#x3D; &quot;http:&#x2F;&#x2F;&quot; + this.name;</span><br><span class="line">      &#125;</span><br><span class="line">      else &#123;</span><br><span class="line">         this.url &#x3D; this.name;</span><br><span class="line">      &#125;</span><br><span class="line">      this.url +&#x3D; cleanPath();</span><br><span class="line">      return (T) loadBalance(builder, context,</span><br><span class="line">            new HardCodedTarget&lt;&gt;(this.type, this.name, this.url));</span><br><span class="line">   &#125;</span><br><span class="line">   if (StringUtils.hasText(this.url) &amp;&amp; !this.url.startsWith(&quot;http&quot;)) &#123;</span><br><span class="line">      this.url &#x3D; &quot;http:&#x2F;&#x2F;&quot; + this.url;</span><br><span class="line">   &#125;</span><br><span class="line">   String url &#x3D; this.url + cleanPath();</span><br><span class="line">   Client client &#x3D; getOptional(context, Client.class);</span><br><span class="line">   if (client !&#x3D; null) &#123;</span><br><span class="line">      if (client instanceof LoadBalancerFeignClient) &#123;</span><br><span class="line">         client &#x3D; ((LoadBalancerFeignClient) client).getDelegate();</span><br><span class="line">      &#125;</span><br><span class="line">      if (client instanceof FeignBlockingLoadBalancerClient) &#123;</span><br><span class="line">         client &#x3D; ((FeignBlockingLoadBalancerClient) client).getDelegate();</span><br><span class="line">      &#125;</span><br><span class="line">      builder.client(client);</span><br><span class="line">   &#125;</span><br><span class="line">   Targeter targeter &#x3D; get(context, Targeter.class);</span><br><span class="line">   &#x2F;&#x2F; 使用对应的Targeter生成相应的代理，可见上方3.2的描述</span><br><span class="line">   return (T) targeter.target(this, builder, context,</span><br><span class="line">         new HardCodedTarget&lt;&gt;(this.type, this.name, url));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">protected Feign.Builder feign(FeignContext context) &#123;</span><br><span class="line">   &#x2F;&#x2F; get方法的具体描述见下方代码块，</span><br><span class="line">   &#x2F;&#x2F; 其会从FeignContext中获取当前contextId对应的AnnotationConfigApplicationContext中获取需要类型的bean</span><br><span class="line">   FeignLoggerFactory loggerFactory &#x3D; get(context, FeignLoggerFactory.class);</span><br><span class="line">   Logger logger &#x3D; loggerFactory.create(this.type);</span><br><span class="line"></span><br><span class="line">   Feign.Builder builder &#x3D; get(context, Feign.Builder.class)</span><br><span class="line">         .logger(logger)</span><br><span class="line">         .encoder(get(context, Encoder.class))</span><br><span class="line">         .decoder(get(context, Decoder.class))</span><br><span class="line">         .contract(get(context, Contract.class));</span><br><span class="line"></span><br><span class="line">   configureFeign(context, builder);</span><br><span class="line"></span><br><span class="line">   return builder;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">protected &lt;T&gt; T get(FeignContext context, Class&lt;T&gt; type) &#123;</span><br><span class="line">   &#x2F;&#x2F; getInstance方法对应到NameContextFactory#getInstance，具体见下方代码块描述</span><br><span class="line">   &#x2F;&#x2F; 注意contextId是在beanDefinition注册时确定的，详情可见FeignClientsRegistrar#getContextId</span><br><span class="line">   T instance &#x3D; context.getInstance(this.contextId, type);</span><br><span class="line">   if (instance &#x3D;&#x3D; null) &#123;</span><br><span class="line">      throw new IllegalStateException(</span><br><span class="line">            &quot;No bean found of type &quot; + type + &quot; for &quot; + this.contextId);</span><br><span class="line">   &#125;</span><br><span class="line">   return instance;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br></pre></td><td class="code"><pre><span class="line">public abstract class NamedContextFactory&lt;C extends NamedContextFactory.Specification&gt;</span><br><span class="line">		implements DisposableBean, ApplicationContextAware &#123;</span><br><span class="line">	&#x2F;&#x2F; 部分代码省略</span><br><span class="line">	...</span><br><span class="line">	</span><br><span class="line">	private Map&lt;String, AnnotationConfigApplicationContext&gt; contexts &#x3D; new ConcurrentHashMap&lt;&gt;();</span><br><span class="line">	private Map&lt;String, C&gt; configurations &#x3D; new ConcurrentHashMap&lt;&gt;();</span><br><span class="line">	</span><br><span class="line">	&#x2F;&#x2F; 部分代码省略</span><br><span class="line">	...</span><br><span class="line">	</span><br><span class="line">	public &lt;T&gt; T getInstance(String name, Class&lt;T&gt; type) &#123;</span><br><span class="line">		&#x2F;&#x2F; 获取当前name所对应的 AnnotationConfigApplicationContext </span><br><span class="line">		AnnotationConfigApplicationContext context &#x3D; getContext(name);</span><br><span class="line">		&#x2F;&#x2F; 依赖查找对应的类型的Bean（包含parent的ApplicationContext）</span><br><span class="line">		if (BeanFactoryUtils.beanNamesForTypeIncludingAncestors(context,</span><br><span class="line">				type).length &gt; 0) &#123;</span><br><span class="line">			return context.getBean(type);</span><br><span class="line">		&#125;</span><br><span class="line">		return null;</span><br><span class="line">	&#125;</span><br><span class="line">	</span><br><span class="line">	protected AnnotationConfigApplicationContext getContext(String name) &#123;</span><br><span class="line">		if (!this.contexts.containsKey(name)) &#123;</span><br><span class="line">			synchronized (this.contexts) &#123;</span><br><span class="line">				if (!this.contexts.containsKey(name)) &#123;</span><br><span class="line">					&#x2F;&#x2F; 如果不存在相应的context时则进行创建</span><br><span class="line">					this.contexts.put(name, createContext(name));</span><br><span class="line">				&#125;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		return this.contexts.get(name);</span><br><span class="line">	&#125;</span><br><span class="line">	</span><br><span class="line">	&#x2F;&#x2F; 在没有当前name没有获取到对应的ApplicationContext时，会调用该方法进行创建</span><br><span class="line">	&#x2F;&#x2F; 该类需要特别注意，这里即是可以针对不同@FeignClient进行不同配置的实现原理</span><br><span class="line">	protected AnnotationConfigApplicationContext createContext(String name) &#123;</span><br><span class="line">		AnnotationConfigApplicationContext context &#x3D; new AnnotationConfigApplicationContext();</span><br><span class="line">		</span><br><span class="line">		&#x2F;&#x2F; 基本是在注入当前所需要的Configuration类</span><br><span class="line">		if (this.configurations.containsKey(name)) &#123;</span><br><span class="line">			for (Class&lt;?&gt; configuration : this.configurations.get(name)</span><br><span class="line">					.getConfiguration()) &#123;</span><br><span class="line">				context.register(configuration);</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		for (Map.Entry&lt;String, C&gt; entry : this.configurations.entrySet()) &#123;</span><br><span class="line">			if (entry.getKey().startsWith(&quot;default.&quot;)) &#123;</span><br><span class="line">				for (Class&lt;?&gt; configuration : entry.getValue().getConfiguration()) &#123;</span><br><span class="line">					context.register(configuration);</span><br><span class="line">				&#125;</span><br><span class="line">			&#125;</span><br><span class="line">		&#125;</span><br><span class="line">		context.register(PropertyPlaceholderAutoConfiguration.class,</span><br><span class="line">				this.defaultConfigType);</span><br><span class="line">		context.getEnvironment().getPropertySources().addFirst(new MapPropertySource(</span><br><span class="line">				this.propertySourceName,</span><br><span class="line">				Collections.&lt;String, Object&gt;singletonMap(this.propertyName, name)));</span><br><span class="line">		if (this.parent !&#x3D; null) &#123;</span><br><span class="line">			&#x2F;&#x2F; 设置当前context的parent，注意当前的parent是经由ApplicationContextAware注入的</span><br><span class="line">			&#x2F;&#x2F; 其注入是在ApplicationContextAwareProcessor执行阶段</span><br><span class="line">			context.setParent(this.parent);</span><br><span class="line">			context.setClassLoader(this.parent.getClassLoader());</span><br><span class="line">		&#125;</span><br><span class="line">		context.setDisplayName(generateDisplayName(name));</span><br><span class="line">		context.refresh();</span><br><span class="line">		return context;</span><br><span class="line">	&#125;</span><br><span class="line">	</span><br><span class="line">	&#x2F;&#x2F; 部分代码省略</span><br><span class="line">	...</span><br><span class="line">		</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+
+<h2 id="4-如何扩展"><a href="#4-如何扩展" class="headerlink" title="4. 如何扩展"></a>4. 如何扩展</h2><p>经过上述源码分析，个人能够想到的扩展点大概有以下几点：</p>
+<ul>
+<li><p>找到某种方式替换 <code>Feign.Builder</code> 中的 invocationHandlerFactory 使其每次调用都可拥有我们的增强</p>
+</li>
+<li><p>重新实现一个Targeter并将其注入为primary，后将其使用的Feign.Builder也进行替换</p>
+</li>
+<li><p>第一步，对Targeter进行动态代理，在实现增强的InvocationHandler中获取到原始的Targeter#target方法的返回值（也就是一个实际调用的代理）以及参数等；第二步，再对实际调用的接口生成一个代理并将Targeter#target返回的代理的InvocationHandler组合到内部。这样我们就可以实现对原始调用的任意增强。（在Spring Cloud Alibaba Dubbo中使用这种形式对Feign的调用进行了替换）</p>
+</li>
+<li><p>使用Spring AOP，将标注了@FeignClient的类作为切点，并实现一个Advice去增强对应的方法即可。</p>
+</li>
+</ul>
+<p>下面我根据个人的想法来分析一下可行性：</p>
+<h5 id="4-1-替换-Feign-Builder-中的-invocationHandlerFactory"><a href="#4-1-替换-Feign-Builder-中的-invocationHandlerFactory" class="headerlink" title="4.1 替换 Feign.Builder 中的 invocationHandlerFactory"></a>4.1 替换 Feign.Builder 中的 invocationHandlerFactory</h5><p>首先看以下 Feign.Builder中是否有修改的方法，我们可以找到如下方法：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 这个是默认实现</span><br><span class="line">public Builder invocationHandlerFactory(InvocationHandlerFactory invocationHandlerFactory) &#123;</span><br><span class="line">  this.invocationHandlerFactory &#x3D; invocationHandlerFactory;</span><br><span class="line">  return this;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>因为公司内部有使用到Hystrix的支持，所以我们再看一下HystrixFeign.Builder的实现：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">public Feign.Builder invocationHandlerFactory(InvocationHandlerFactory invocationHandlerFactory) &#123;</span><br><span class="line">  throw new UnsupportedOperationException();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>那么我们是否能够直接再次覆盖HystrixFeign.Builder的实现呢，我又看到了如下声明：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#x2F;&#x2F; 它是final类...</span><br><span class="line">public static final class Builder extends Feign.Builder</span><br></pre></td></tr></table></figure>
+
+<p>那么我们是否能够重新实现Feign.Builder并进行注入呢。针对这一点我们可以回到HystrixTargeter，它的实现中有如下代码：</p>
+<figure class="highlight plain"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">if (!(feign instanceof feign.hystrix.HystrixFeign.Builder)) &#123;</span><br><span class="line">   return feign.target(target);</span><br><span class="line">&#125;</span><br><span class="line">&#x2F;&#x2F; 在满足的情况下，它下方还有一些对于HystrixCommand</span><br><span class="line">&#x2F;&#x2F; 如果自行实现builder有一些配置可能会失效</span><br></pre></td></tr></table></figure>
+
+<p>从上面看下来，这种方式应该是没有很好的办法去实现的。放弃。</p>
+<h5 id="4-2-重新实现一个Targeter，并且对Feign-Builder也进行替换"><a href="#4-2-重新实现一个Targeter，并且对Feign-Builder也进行替换" class="headerlink" title="4.2 重新实现一个Targeter，并且对Feign.Builder也进行替换"></a>4.2 重新实现一个Targeter，并且对Feign.Builder也进行替换</h5><p>前面提到了 <code>Targeter</code> 接口为一个包访问权限的接口，这种方式也可以放弃。</p>
+<h5 id="4-3-对Targeter进行动态代理，并将其内部返回的代理进行增强"><a href="#4-3-对Targeter进行动态代理，并将其内部返回的代理进行增强" class="headerlink" title="4.3 对Targeter进行动态代理，并将其内部返回的代理进行增强"></a>4.3 对Targeter进行动态代理，并将其内部返回的代理进行增强</h5><p>在这种方式实现下，我们应该需要获取到Targeter的Bean并进行代理，并且需要获取到原始的接口类型。</p>
+<ul>
+<li>获取Targeter的Bean，我们直接就可以想到利用 <code>BeanPostProcessor即可</code></li>
+<li>原始类型的获取我们可以回到 <code>FeignClientFactoryBean</code> 中，其在调用 <code>Targeter#target</code> 时构造了一个<code>HardCodedTarget</code> 作为传入参数，其中的 <code>type</code> 对应到了 ``FeignClientFactoryBean<code></code> 的成员变量，其在<code>FeignClientsRegistrar#registerFeignClients</code> 进行了注册（其中拿的就是API声明接口的类型）。那么我们可在target方法调用时获取到原始API接口的类型。</li>
+</ul>
+<p>根据之前给的流程图，如果进行动态代理，其流转会变为如下形式：</p>
+<p><img src="/zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/proxy_step.png" alt="代理流程"></p>
+<p>在本文最后会给到所有实现方式Demo的链接，有兴趣的可以看一下。</p>
+<h5 id="4-4-使用-Spring-Aop-直接对方法调用进行替换"><a href="#4-4-使用-Spring-Aop-直接对方法调用进行替换" class="headerlink" title="4.4 使用 Spring Aop 直接对方法调用进行替换"></a>4.4 使用 Spring Aop 直接对方法调用进行替换</h5><p>使用这种方式有以下阻碍：</p>
+<ul>
+<li>FeignClientFactoryBean返回的实际Bean类型为一个Proxy，我们需要获取到其实际类型下的注解信息</li>
+</ul>
+<p>这里的Proxy我们可以直接获取其interfaces来获取到实际的类型再判断其是否有某一注解；那么在Spring有提供相关的工具类吗？答案是有的，在 Spring 中我们可以直接使用 <code>AnnotationElementUtils#hasAnnotation</code> 方法来进行判断。</p>
+<p>查看 <code>Pointcut</code>  切点的实现类中会存在一个 <code>AnnotationMatchingPointcut</code> 类（或自行实现也可以，只需要自行实现相应的ClassFilter即可），查看其 <code>classFilter</code> 实际使用的是<code>AnnotationClassFilter</code>  内部也使用了 <code>AnnotationElementUtils#hasAnnotation</code>，那基于此我们基本可以完成实现了。最终我也是选择了该种方式进行实现，其实现成本低，且可读性高于代理Targeter的形式。</p>
+<p>最后贴上两种实现的示例地址：<a href="https://github.com/zzhcki/sc-openfeign-extension-demo" target="_blank" rel="noopener">https://github.com/zzhcki/sc-openfeign-extension-demo</a></p>
+
+      
+
+      
+        <div class="page-reward">
+          <a href="javascript:;" class="page-reward-btn tooltip-top">
+            <div class="tooltip tooltip-east">
+            <span class="tooltip-item">
+              赏
+            </span>
+            <span class="tooltip-content">
+              <span class="tooltip-text">
+                <span class="tooltip-inner">
+                  <p class="reward-p"><i class="icon icon-quo-left"></i>谢谢你请我吃糖果<i class="icon icon-quo-right"></i></p>
+                  <div class="reward-box">
+                    
+                    
+                  </div>
+                </span>
+              </span>
+            </span>
+          </div>
+          </a>
+        </div>
+      
+    </div>
+    <div class="article-info article-info-index">
+      
+      
 	<div class="article-tag tagcloud">
 		<i class="icon-price-tags icon"></i>
 		<ul class="article-tag-list">
@@ -198,19 +384,96 @@
 		</ul>
 	</div>
 
-          
+      
 
+      
+
+      
+        
+<div class="share-btn share-icons tooltip-left">
+  <div class="tooltip tooltip-east">
+    <span class="tooltip-item">
+      <a href="javascript:;" class="share-sns share-outer">
+        <i class="icon icon-share"></i>
+      </a>
+    </span>
+    <span class="tooltip-content">
+      <div class="share-wrap">
+        <div class="share-icons">
+          <a class="weibo share-sns" href="javascript:;" data-type="weibo">
+            <i class="icon icon-weibo"></i>
+          </a>
+          <a class="weixin share-sns wxFab" href="javascript:;" data-type="weixin">
+            <i class="icon icon-weixin"></i>
+          </a>
+          <a class="qq share-sns" href="javascript:;" data-type="qq">
+            <i class="icon icon-qq"></i>
+          </a>
+          <a class="douban share-sns" href="javascript:;" data-type="douban">
+            <i class="icon icon-douban"></i>
+          </a>
+          <a class="qzone share-sns" href="javascript:;" data-type="qzone">
+            <i class="icon icon-qzone"></i>
+          </a>
+          <a class="facebook share-sns" href="javascript:;" data-type="facebook">
+            <i class="icon icon-facebook"></i>
+          </a>
+          <a class="twitter share-sns" href="javascript:;" data-type="twitter">
+            <i class="icon icon-twitter"></i>
+          </a>
+          <a class="google share-sns" href="javascript:;" data-type="google">
+            <i class="icon icon-google"></i>
+          </a>
         </div>
-        <div class="clearfix"></div>
-    </header>
+      </div>
+    </span>
+  </div>
+</div>
+
+<div class="page-modal wx-share js-wx-box">
+    <a class="close js-modal-close" href="javascript:;"><i class="icon icon-close"></i></a>
+    <p>扫一扫，分享到微信</p>
+    <div class="wx-qrcode">
+      <img src="//pan.baidu.com/share/qrcode?url=https://zzhcki.github.io/2020/05/09/Spring-Cloud-Openfeign-extension/" alt="微信分享二维码">
+    </div>
+</div>
+
+<div class="mask js-mask"></div>
+      
+      <div class="clearfix"></div>
+    </div>
   </div>
 </article>
-  
-  
-    </div></section>
+
   
 
-    
+<aside class="wrap-side-operation">
+    <div class="mod-side-operation">
+        
+        <div class="jump-container" id="js-jump-container" style="display:none;">
+            <a href="javascript:void(0)" class="mod-side-operation__jump-to-top">
+                <i class="icon-font icon-back"></i>
+            </a>
+            <div id="js-jump-plan-container" class="jump-plan-container" style="top: -11px;">
+                <i class="icon-font icon-plane jump-plane"></i>
+            </div>
+        </div>
+        
+        
+    </div>
+</aside>
+
+
+
+  
+  
+  
+
+  
+
+  
+
+  
 
 
           </div>
@@ -233,8 +496,8 @@
 	var yiliaConfig = {
 		mathjax: false,
 		isHome: false,
-		isPost: false,
-		isArchive: true,
+		isPost: true,
+		isArchive: false,
 		isTag: false,
 		isCategory: false,
 		open_in_new: false,
